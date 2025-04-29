@@ -91,6 +91,30 @@ python -m src/main
 程序将开始执行数据读取、分析和写入流程。日志信息会输出到控制台。分析结果将写入配置的飞书表格和本地 output.txt 文件。
 
 ## 软件设计
+
+### 架构设计
+
+本项目采用了一种基于 Agent/Orchestrator 的简化架构模式来处理对话评估任务。其核心思想如下图所示：
+
+![架构图](docs/architecture.png)
+
+**架构图解读:**
+
+1.  **用户交互层 (UI/Web/CLI):** 在本项目中，这部分对应于从飞书多维表格读取数据的初始步骤，以及最终将结果写回飞书和本地文件的操作。用户通过配置 `.env` 文件和运行脚本来发起任务，而不是实时的交互界面。
+2.  **Agent 协调器 (Orchestrator):** 这是架构的核心，负责协调整个流程。在本项目中，<mcfile name="main.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/main.py"></mcfile> 脚本扮演了这个角色。它负责：
+    *   读取配置和数据 (对应图中的 1a，但来源是飞书)。
+    *   准备数据并构建 Prompt (对应图中的 4a)。
+    *   调用 LLM 推理层进行分析 (对应图中的 4a)。
+    *   处理 LLM 返回的结果 (对应图中的 5a)。
+    *   将最终结果写回目标位置 (对应图中的 8a)。
+3.  **LLM 推理层 (LLM Service):** 这是执行核心智能分析的部分。本项目通过 <mcfile name="gemini_model.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/models/gemini_model.py"></mcfile> 和 <mcfile name="deepseek_model.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/models/deepseek_model.py"></mcfile> 与大模型服务交互。
+    *   **LangChain 的应用**: 当 `MODEL_PROVIDER` 设置为 `gemini` 时，<mcsymbol name="GeminiDialogueAnalyzer" filename="gemini_model.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/models/gemini_model.py" startline="13" type="class"></mcsymbol> 类利用 **LangChain** 框架来简化与 Google Gemini API 的交互。具体来说，它使用了 LangChain 的 `ChatGoogleGenerativeAI` 类来封装模型调用，并使用 `SystemMessage` 和 `HumanMessage` 来构建符合 LangChain 规范的消息列表，然后通过 `invoke` 方法发送给 LLM。这体现了图中 Orchestrator 与 LLM Service 交互 (4a, 5a) 的过程，LangChain 在此充当了交互的桥梁和封装层。
+    *   当 `MODEL_PROVIDER` 设置为 `deepseek` 时，<mcsymbol name="DeepSeekDialogueAnalyzer" filename="deepseek_model.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/models/deepseek_model.py" startline="10" type="class"></mcsymbol> 类则直接使用 `openai` 库与 DeepSeek API 进行交互。
+4.  **Memory 存储:** 图中展示了用于存储上下文和历史记录的 Memory 组件（如 Vector DB）。在当前项目中，这个功能被简化了。数据直接从飞书读取，没有实现长期的、跨批次的对话记忆或向量化检索 (对应图中的 2a, 3a, 6b 未完全实现)。
+5.  **工具模块 (Tools / Function APIs):** 图中展示了 LLM 可以通过 Function Calling 调用外部工具。本项目没有实现通用的 Function Calling 机制。可以认为飞书的读写操作 (<mcfile name="feishu_client.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/utils/feishu_client.py"></mcfile>) 是由 Orchestrator (<mcfile name="main.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/main.py"></mcfile>) 直接调用的特定“工具”，而不是由 LLM 动态决定和调用的 (对应图中的 6a, 7a 的简化实现)。
+
+**总结:** 当前应用是该通用 Agent 架构的一个针对特定批量处理任务的简化实现。<mcfile name="main.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/main.py"></mcfile> 作为 Orchestrator 驱动整个流程，利用 LLM 进行核心分析。其中，与 Gemini 的交互采用了 LangChain 框架来简化集成，体现了该框架在构建 LLM 应用中的便利性。而 Memory 和动态 Tool Calling 等更复杂的 Agent 功能则根据当前需求进行了简化。
+
 ### 功能模块
 1. 主程序 ( src/main.py ) :
    - 加载配置 ( .env )。
