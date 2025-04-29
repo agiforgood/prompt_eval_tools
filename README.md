@@ -95,7 +95,7 @@ python -m src/main
 ### 架构设计
 
 本项目采用了一种基于 Agent/Orchestrator 的简化架构模式来处理对话评估任务。其核心思想如下图所示：
-![image](docs/architecture.png)
+![image](docs/architecture.jpg)
 
 **架构图解读:**
 
