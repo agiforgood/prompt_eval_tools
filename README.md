@@ -23,7 +23,7 @@
 ## 功能概述
 
 - **数据读取**：从指定的飞书多维表格视图中读取对话记录（目前固定读取 `编号`, `round5`, `round10` 字段）。
-- **数据去重**：在进行分析前，根据 `round5` 或 `round10` 字段的内容对读取的记录进行去重，确保具有相同 `round5` 或 `round10` 内容的记录只处理一次（保留首次出现的记录）。
+- **数据去重**：在进行分析前，根据 `编号` 字段的值对读取的记录进行去重，确保具有相同 `编号` 的记录只处理一次（保留首次出现的记录）。
 - **数据分析**：根据选择的模型提供商（Gemini 或 DeepSeek）和系统提示 (`src/prompts/system_prompt.txt`)，对对话数据进行批量分析。
 - **结果输出**：
     - 将 LLM 生成的结构化分析结果写回到源飞书多维表格中。
@@ -127,7 +127,7 @@ python -m src/main
 2. 加载配置 : 从 .env 文件加载环境变量。
 3. 获取写入 Token : main.py 调用 get_write_token ( feishu_client.py ) 获取用于后续写入的飞书 tenant_access_token 。
 4. 读取数据 : main.py 调用 fetch_bitable_records ( feishu_client.py )，使用读取配置从飞书表格获取记录。
-5. **数据去重** : main.py 对获取的记录基于 `round5` 或 `round10` 字段的内容进行去重处理。
+5. **数据去重** : main.py 对获取的记录基于 `编号` 字段的值进行去重处理。
 6. 分批 : main.py 将去重后的记录分成多个批次。
 7. 并行处理 : main.py 使用 ThreadPoolExecutor 并发执行 analyze_and_write_batch 函数处理每个批次。
 7. LLM 分析 (批处理内) :
