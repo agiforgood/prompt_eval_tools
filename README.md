@@ -23,6 +23,7 @@
 ## 功能概述
 
 - **数据读取**：从指定的飞书多维表格视图中读取对话记录（目前固定读取 `编号`, `round5`, `round10` 字段）。
+- **数据去重**：在进行分析前，根据 `round5` 或 `round10` 字段的内容对读取的记录进行去重，确保具有相同 `round5` 或 `round10` 内容的记录只处理一次（保留首次出现的记录）。
 - **数据分析**：根据选择的模型提供商（Gemini 或 DeepSeek）和系统提示 (`src/prompts/system_prompt.txt`)，对对话数据进行批量分析。
 - **结果输出**：
     - 将 LLM 生成的结构化分析结果写回到源飞书多维表格中。
@@ -99,8 +100,17 @@ python -m src/main
    - 调用飞书客户端写入结果。
    - 协调整个工作流程。
 2. 模型分析器 ( src/models/ ) :
-   - gemini_model.py : GeminiDialogueAnalyzer 类，使用 LangChain 与 Google Gemini API 交互。
-   - deepseek_model.py : DeepSeekDialogueAnalyzer 类，使用 openai 库与 DeepSeek API 交互。
+   - gemini_model.py : `GeminiDialogueAnalyzer` 类。
+     - **LangChain 集成**: 此类利用 LangChain 框架与 Google Gemini API 进行交互。
+     - **核心组件**:
+       - `ChatGoogleGenerativeAI`: LangChain 提供的用于调用 Gemini 模型的聊天模型接口。通过它配置 API 密钥、模型名称、温度等参数。
+       - `SystemMessage`: 用于封装从 `system_prompt.txt` 读取的系统提示，指导 LLM 的行为和输出格式。
+       - `HumanMessage`: 用于封装实际需要分析的对话数据（格式化后的 JSON 字符串）。
+     - **调用流程**: 在 `analyze_dialogue` 方法中，将 `SystemMessage` 和 `HumanMessage` 组合成一个消息列表，然后传递给 `ChatGoogleGenerativeAI` 实例的 `invoke` 方法来获取 LLM 的响应。
+     - **结果处理**: 对 LLM 返回的原始响应进行解析，提取内容。
+   - deepseek_model.py : `DeepSeekDialogueAnalyzer` 类。
+     - **直接 API 调用**: 此类不使用 LangChain，而是直接使用官方推荐的 `openai` Python 库与 DeepSeek API（兼容 OpenAI 格式）进行交互。
+     - **调用方式**: 通过创建 `openai.OpenAI` 客户端实例，并调用其 `chat.completions.create` 方法，传入模型名称、系统提示和用户消息（对话数据）来获取响应。
    - 负责根据系统提示 ( system_prompt.txt ) 和输入数据调用 LLM API，并解析返回结果。
 3. 飞书客户端 ( src/utils/feishu_client.py ) :
    - 封装了与飞书多维表格 API 的交互逻辑。
@@ -117,8 +127,9 @@ python -m src/main
 2. 加载配置 : 从 .env 文件加载环境变量。
 3. 获取写入 Token : main.py 调用 get_write_token ( feishu_client.py ) 获取用于后续写入的飞书 tenant_access_token 。
 4. 读取数据 : main.py 调用 fetch_bitable_records ( feishu_client.py )，使用读取配置从飞书表格获取记录。
-5. 分批 : main.py 将获取的记录分成多个批次。
-6. 并行处理 : main.py 使用 ThreadPoolExecutor 并发执行 analyze_and_write_batch 函数处理每个批次。
+5. **数据去重** : main.py 对获取的记录基于 `round5` 或 `round10` 字段的内容进行去重处理。
+6. 分批 : main.py 将去重后的记录分成多个批次。
+7. 并行处理 : main.py 使用 ThreadPoolExecutor 并发执行 analyze_and_write_batch 函数处理每个批次。
 7. LLM 分析 (批处理内) :
    - analyze_and_write_batch 将批次记录格式化为 JSON 字符串。
    - 调用选定模型分析器 ( GeminiDialogueAnalyzer 或 DeepSeekDialogueAnalyzer ) 的 analyze_dialogue 方法。

@@ -179,6 +179,19 @@ def main():
         logging.info("Loading environment variables...")
         load_dotenv()
 
+        # --- 新增：程序启动时清空 output.txt ---
+        try:
+            with open(OUTPUT_FILENAME, 'w', encoding='utf-8') as f:
+                # 打开并立即关闭，达到清空目的
+                pass
+            logging.info(f"Cleared previous content from {OUTPUT_FILENAME}.")
+        except Exception as e:
+            logging.error(f"Failed to clear {OUTPUT_FILENAME}: {e}")
+            # 根据需要决定是否中止程序
+            # return
+        # --- 结束新增清空逻辑 ---
+
+
         # --- 获取模型配置 ---
         google_api_key = os.getenv("GOOGLE_API_KEY")
         model_name = os.getenv("MODEL_NAME", "gemini-pro")
@@ -238,7 +251,7 @@ def main():
 
         if analyzer:
             # --- 获取飞书数据 ---
-            logging.info(f"Fetching records (编号, round5, round10) from Feishu Bitable (Read): App={feishu_read_app_token}, Table={feishu_read_table_id}, View={feishu_read_view_id}")
+            logging.info(f"Fetching records from Feishu Bitable (Read): App={feishu_read_app_token}, Table={feishu_read_table_id}, View={feishu_read_view_id}")
             # --- 修改：移除 fields 参数传递 ---
             records = fetch_bitable_records(
                 app_token=feishu_read_app_token,
@@ -251,6 +264,70 @@ def main():
                 return # 没有数据则退出
 
             logging.info(f"Successfully fetched {len(records)} records from Feishu.")
+
+            # --- 修改：调整打印和检查逻辑 ---
+            logging.info("--- Printing first few fetched records from Feishu ---")
+            for i, record in enumerate(records[:5]): # record 已经是 fields 字典
+                logging.info(f"Record {i+1} raw data (fields): {record}")
+                # --- 直接在 record (fields dict) 中检查 '编号' ---
+                if "编号" in record:
+                    logging.info(f"  Record {i+1}: '编号' field FOUND. Value: {record.get('编号')}")
+                else:
+                    # --- 显示 record (fields dict) 的键 ---
+                    logging.warning(f"  Record {i+1}: '编号' field NOT FOUND in keys: {list(record.keys())}")
+            logging.info("--- Finished printing first few records ---")
+            # --- 结束修改 ---
+
+
+            # --- 修改：根据【编号】字段去重 ---
+            unique_records = []      # 使用列表存储唯一记录
+            seen_ids = set()         # 存储见过的【编号】
+
+            for record in records: # record 已经是 fields 字典
+                # --- 直接从 record (fields dict) 获取 '编号' ---
+                record_id_value = record.get("编号") # 获取【编号】字段的值
+
+                # 检查【编号】是否存在且未被见过
+                if record_id_value is not None and record_id_value not in seen_ids:
+                    # 如果【编号】不重复，将记录添加到列表，并将【编号】添加到 seen_ids 集合
+                    unique_records.append(record) # 添加的是 fields 字典
+                    seen_ids.add(record_id_value)
+                elif record_id_value is None:
+                    # --- 注意：这里无法获取 record_id，因为 fetch 函数没返回 ---
+                    # 可以记录部分内容帮助定位，例如前几个字段
+                    partial_record_info = str(list(record.items())[:2]) # 记录前2个字段键值对
+                    logging.warning(f"Record (fields: {partial_record_info}...) skipped because '编号' field is missing.")
+                else:
+                    # --- 注意：这里无法获取 record_id ---
+                    partial_record_info = str(list(record.items())[:2])
+                    logging.debug(f"Record (fields: {partial_record_info}...) skipped due to duplicate '编号': {record_id_value}.")
+
+            original_count = len(records)
+            records = unique_records # records 现在是去重后的 fields 字典列表
+            logging.info(f"Deduplicated records based on '编号' field. Original: {original_count}, Unique: {len(records)}")
+            # --- 结束去重逻辑修改 ---
+
+            # --- 修改：将去重后的记录追加写入 output.txt ---
+            # 这里的 record_to_write 已经是 fields 字典，可以直接写入
+            if records: # 确保有记录才写入
+                try:
+                    # 使用 'a' 模式追加写入
+                    with open(OUTPUT_FILENAME, 'a', encoding='utf-8') as f:
+                        f.write("--- Deduplicated Feishu Records ---\n") # 添加分隔符
+                        for record_to_write in records: # record_to_write 是 fields 字典
+                            # 将每个记录字典转换为 JSON 字符串并写入，每个记录占一行
+                            f.write(json.dumps(record_to_write, ensure_ascii=False) + '\n')
+                    logging.info(f"Successfully appended {len(records)} deduplicated records (fields only) to {OUTPUT_FILENAME}")
+                except Exception as file_write_error:
+                    logging.error(f"Failed to append deduplicated records to {OUTPUT_FILENAME}: {file_write_error}")
+                    # 根据需要决定是否在这里中止程序
+                    # return
+            # --- 结束修改写入逻辑 ---
+
+
+            if not records: # 如果去重后没有记录了 (或者写入失败后决定退出)
+                 logging.warning("No unique records left after deduplication or failed to write them.")
+                 return
 
             # --- 获取用于写入的飞书 Token ---
             feishu_writer_token = get_write_token()
@@ -271,7 +348,7 @@ def main():
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor: # 可调整并发数
                 futures = []
                 for i in range(0, len(records), batch_size):
-                    batch_records_slice = records[i:i + batch_size]
+                    batch_records_slice = records[i:i + batch_size] # 这是 fields 字典的列表
                     current_batch_num = (i // batch_size) + 1
                     # 修改这里：调用新的函数并传递写入所需参数
                     task = partial(
