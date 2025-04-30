@@ -217,8 +217,10 @@ python -m src/main
     *   如果确实需要修改飞书多维表格的字段名称、类型、选项或顺序，**必须**同步更新 <mcfile name="system_prompt.txt" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/prompts/system_prompt.txt"></mcfile> 文件中的 `output_format` 部分，以确保 LLM 输出的 JSON 结构与新的表格结构保持一致。否则会导致写入失败。
 
 5.  **相关链接**：
-    *   **飞书多维表格测试表**: <mcurl name="测试表链接" url="https://westlakeaiforgood.feishu.cn/wiki/AsXowukCvi3Oy4kKhYpci96znbf?table=tblEDNg0pQrMoHLS&view=vewYc4EEVR"></mcurl> (请确保有访问权限)
-    *   **飞书租户应用配置**: <mcurl name="应用配置地址" url="https://open.feishu.cn/app/cli_a88593592e1e500b/baseinfo"></mcurl> (用于查看和管理 App ID, App Secret 等)
+    *   **飞书多维表格测试表**: 
+    [测试表链接] (https://westlakeaiforgood.feishu.cn/wiki/AsXowukCvi3Oy4kKhYpci96znbf?table=tblEDNg0pQrMoHLS&view=vewYc4EEVR)
+    *   **飞书租户应用配置**: 
+    [应用配置地址] (https://open.feishu.cn/app/cli_a88593592e1e500b/baseinfo")
 
 ## 未来改进方向 (TODO)
 1. 支持更多模型 : 增加对其他 LLM 提供商（如 OpenAI GPT 系列）的支持。
