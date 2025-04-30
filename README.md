@@ -200,6 +200,26 @@ python -m src/main
 - 输出 : 日志信息默认输出到控制台。
 - 内容 : 记录程序启动/结束、配置加载、模型初始化、数据获取、批处理进度、LLM 调用、飞书写入、遇到的错误等关键信息。
 
+## 维护注意事项
+**重要：** 飞书多维表格的写入操作要求 LLM 输出的 JSON 结果中的字段名（`key`）与目标表格的字段名**完全一致**，包括字符、大小写和符号，同时字段属性也需要保持一致，比如单选或多选。为了确保数据能正确写入，请在维护时注意以下几点：
+
+1.  **字段名与属性一致性**：
+    *   确保 <mcfile name="system_prompt.txt" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/prompts/system_prompt.txt"></mcfile> 中定义的 `output_format` JSON 结构里的字段名与飞书多维表格中的字段名完全匹配。
+    *   特别注意对比第 5 轮和第 10 轮相关的字段，它们的命名和字段属性（尤其是“单选”类型的选项值）必须保持一致。例如，“第5轮共情对象是否准确？” 和 “第10轮教练共情对象是否准确？” 这两个字段，不仅名称要对应，其在飞书表格中配置的单选选项列表也应该是一致的，否则 LLM 可能生成飞书无法识别的选项值。
+
+2.  **符号一致性**：
+    *   字段名中如果包含问号，请确保在飞书表格和 `system_prompt.txt` 中统一使用中文问号 `？` 或英文问号 `?`，两者必须保持一致。
+
+3.  **减少表格结构变动**：
+    *   尽量避免频繁更改飞书多维表格的字段名称、类型或选项。
+
+4.  **同步修改 Prompt**：
+    *   如果确实需要修改飞书多维表格的字段名称、类型、选项或顺序，**必须**同步更新 <mcfile name="system_prompt.txt" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/prompts/system_prompt.txt"></mcfile> 文件中的 `output_format` 部分，以确保 LLM 输出的 JSON 结构与新的表格结构保持一致。否则会导致写入失败。
+
+5.  **相关链接**：
+    *   **飞书多维表格测试表**: <mcurl name="测试表链接" url="https://westlakeaiforgood.feishu.cn/wiki/AsXowukCvi3Oy4kKhYpci96znbf?table=tblEDNg0pQrMoHLS&view=vewYc4EEVR"></mcurl> (请确保有访问权限)
+    *   **飞书租户应用配置**: <mcurl name="应用配置地址" url="https://open.feishu.cn/app/cli_a88593592e1e500b/baseinfo"></mcurl> (用于查看和管理 App ID, App Secret 等)
+
 ## 未来改进方向 (TODO)
 1. 支持更多模型 : 增加对其他 LLM 提供商（如 OpenAI GPT 系列）的支持。
 2. 优化并行策略 : 根据系统资源或 API 速率限制动态调整批次大小和并发数。
