@@ -201,7 +201,7 @@ python -m src/main
 - 内容 : 记录程序启动/结束、配置加载、模型初始化、数据获取、批处理进度、LLM 调用、飞书写入、遇到的错误等关键信息。
 
 ## 维护注意事项
-**重要：** 飞书多维表格的写入操作要求 LLM 输出的 JSON 结果中的字段名（`key`）与目标表格的字段名**完全一致**，包括字符、大小写和符号，同时字段属性也需要保持一致，比如单选或多选。为了确保数据能正确写入，请在维护时注意以下几点：
+**重要：** 飞书多维表格的写入操作要求 LLM 输出的 JSON 结果中的字段名（`key`）与目标表格的字段名**完全一致**，包括字符、大小写和符号。为了确保数据能正确写入，请在维护时注意以下几点：
 
 1.  **字段名与属性一致性**：
     *   确保 <mcfile name="system_prompt.txt" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/prompts/system_prompt.txt"></mcfile> 中定义的 `output_format` JSON 结构里的字段名与飞书多维表格中的字段名完全匹配。
@@ -216,7 +216,12 @@ python -m src/main
 4.  **同步修改 Prompt**：
     *   如果确实需要修改飞书多维表格的字段名称、类型、选项或顺序，**必须**同步更新 <mcfile name="system_prompt.txt" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/prompts/system_prompt.txt"></mcfile> 文件中的 `output_format` 部分，以确保 LLM 输出的 JSON 结构与新的表格结构保持一致。否则会导致写入失败。
 
-5.  **相关链接**：
+5.  **批处理大小与 Token 限制**：
+    *   默认情况下，程序在 <mcfile name="main.py" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/main.py"></mcfile> 中设置 `batch_size = 2`，即每次调用 LLM 时会处理 2 条飞书记录。
+    *   如果需要增加 `batch_size` 以提高处理效率，必须同时关注模型允许的最大输出 Token 数（在 <mcfile name=".env" path="/Users/bytedance/KaylaProject/ai_prompt_eval/.env"></mcfile> 文件中通过 `MAX_OUTPUT_TOKENS` 配置）。
+    *   当单次调用的输入（包含系统提示和多条记录数据）和预期输出的总 Token 数超过模型的 `max_output_tokens` 限制时，LLM 的输出可能会被截断，导致 JSON 格式不完整，程序在解析时会报错。因此，调整 `batch_size` 时需要权衡效率和 Token 限制。
+
+6.  **相关链接**：
     *   **飞书多维表格测试表**: 
     [测试表链接] (https://westlakeaiforgood.feishu.cn/wiki/AsXowukCvi3Oy4kKhYpci96znbf?table=tblEDNg0pQrMoHLS&view=vewYc4EEVR)
     *   **飞书租户应用配置**: 
