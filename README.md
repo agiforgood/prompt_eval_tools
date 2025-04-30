@@ -18,6 +18,7 @@
   - [性能优化](#性能优化)
   - [错误处理](#错误处理)
   - [日志记录](#日志记录)
+- [维护注意事项](#维护注意事项)
 - [未来改进方向 (TODO)](#未来改进方向-todo)
 
 ## 功能概述
@@ -221,8 +222,13 @@ python -m src/main
     *   如果需要增加 `batch_size` 以提高处理效率，必须同时关注模型允许的最大输出 Token 数（在 <mcfile name=".env" path="/Users/bytedance/KaylaProject/ai_prompt_eval/.env"></mcfile> 文件中通过 `MAX_OUTPUT_TOKENS` 配置）。
     *   当单次调用的输入（包含系统提示和多条记录数据）和预期输出的总 Token 数超过模型的 `max_output_tokens` 限制时，LLM 的输出可能会被截断，导致 JSON 格式不完整，程序在解析时会报错。因此，调整 `batch_size` 时需要权衡效率和 Token 限制。
 
-6.  **相关链接**：
-    *   **飞书多维表格测试表**: 
+6.  **迁移到新的飞书多维表格**：
+    *   如果需要将数据源或目标迁移到**新的**飞书多维表格，请务必修改以下两处配置：
+        1.  **环境变量**：更新 <mcfile name=".env" path="/Users/bytedance/KaylaProject/ai_prompt_eval/.env"></mcfile> 文件中与飞书表格相关的配置，例如 `FEISHU_READ_APP_TOKEN`, `FEISHU_READ_TABLE_ID`, `FEISHU_READ_VIEW_ID` 等，确保它们指向新的表格。
+        2.  **系统提示**：检查并更新 <mcfile name="system_prompt.txt" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/prompts/system_prompt.txt"></mcfile> 文件中定义的 `output_format` JSON 结构，确保其字段名和结构与**新表格**的字段完全匹配。
+
+7.  **相关链接**：
+    *   **飞书多维表格测试表**:
     [测试表链接] (https://westlakeaiforgood.feishu.cn/wiki/AsXowukCvi3Oy4kKhYpci96znbf?table=tblEDNg0pQrMoHLS&view=vewYc4EEVR)
     *   **飞书租户应用配置**: 
     [应用配置地址] (https://open.feishu.cn/app/cli_a88593592e1e500b/baseinfo")
