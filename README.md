@@ -37,7 +37,7 @@
 
 1.  **安装 Python**: 确保已安装 Python 3.x。
 2.  **克隆仓库**: `git clone <repository_url>`
-3.  **进入项目目录**: `cd ai_prompt_eval`
+3.  **进入项目目录**: `cd <repository_dir>`
 4.  **安装依赖**:
     ```bash
     pip install -r requirements.txt
