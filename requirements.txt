@@ -18,3 +18,4 @@ langchain-community
 langchain-openai
 # requests # 如果其他地方不用可以移除
 lark-oapi
+langchain-anthropic

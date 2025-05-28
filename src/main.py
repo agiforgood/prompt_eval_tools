@@ -4,6 +4,7 @@ import logging
 from dotenv import load_dotenv
 from src.models.gemini_model import GeminiDialogueAnalyzer
 from src.models.deepseek_model import DeepSeekDialogueAnalyzer
+from src.models.claude_model import ClaudeDialogueAnalyzer
 from src.utils.feishu_client import fetch_bitable_records, write_records_to_bitable, get_write_token
 import math
 import concurrent.futures
@@ -200,6 +201,9 @@ def main():
         deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL")
         deepseek_model_name = os.getenv("DEEPSEEK_MODEL_NAME")
+        claude_api_key = os.getenv("CLAUDE_API_KEY")
+        claude_model_name = os.getenv("CLAUDE_MODEL_NAME", "claude-3-opus-20240229")
+        claude_base_url = os.getenv("CLAUDE_BASE_URL", "https://api.oaipro.com/")
         model_provider = os.getenv("MODEL_PROVIDER", "gemini").lower() # 默认为 gemini
 
         # --- 获取飞书读取配置 ---
@@ -217,6 +221,8 @@ def main():
              raise ValueError("GOOGLE_API_KEY is not set in the environment variables for Gemini.")
         if model_provider == "deepseek" and not deepseek_api_key:
              raise ValueError("DEEPSEEK_API_KEY is not set in the environment variables for DeepSeek.")
+        if model_provider == "claude" and not claude_api_key:
+             raise ValueError("CLAUDE_API_KEY is not set in the environment variables for Claude.")
         if not feishu_read_app_token or not feishu_read_table_id:
             raise ValueError("FEISHU_APP_TOKEN or FEISHU_TABLE_ID for reading is not set.")
         if not feishu_write_app_token or not feishu_write_table_id:
@@ -225,29 +231,60 @@ def main():
 
         # --- 初始化模型分析器 ---
         analyzer = None
-        system_prompt_path = "src/prompts/system_prompt.txt"
-        if not os.path.exists(system_prompt_path):
-             raise FileNotFoundError(f"System prompt file not found at: {system_prompt_path}")
-        with open(system_prompt_path, 'r', encoding='utf-8') as f:
-            system_prompt = f.read()
+        instructions_prompt_path = "src/prompts/instructions_prompt.txt"
+        schema_prompt_path = "src/prompts/schema_prompt.txt"
+        
+        # 检查 prompt 文件是否存在
+        if not os.path.exists(instructions_prompt_path):
+            raise FileNotFoundError(f"Instructions prompt file not found at: {instructions_prompt_path}")
+        if not os.path.exists(schema_prompt_path):
+            raise FileNotFoundError(f"Schema prompt file not found at: {schema_prompt_path}")
+            
+        # 读取 instructions prompt
+        with open(instructions_prompt_path, 'r', encoding='utf-8') as f:
+            instructions_prompt = f.read()
+            
+        # 读取并替换 schema prompt 中的模型名称
+        with open(schema_prompt_path, 'r', encoding='utf-8') as f:
+            schema_prompt = f.read()
+            # 根据当前使用的模型替换占位符
+            current_model_name = model_name if model_provider == "gemini" else deepseek_model_name
+            schema_prompt = schema_prompt.replace("{{modelname}}", current_model_name)
+            
+        # 组合完整的 system prompt
+        system_prompt = instructions_prompt + "\n\n" + schema_prompt
 
         if model_provider == "gemini":
             logging.info("Initializing GeminiDialogueAnalyzer...")
-            # --- 确保传递所有必需的参数 ---
             analyzer = GeminiDialogueAnalyzer(
                 api_key=google_api_key,
-                model_name=model_name, # 确保 model_name 已从 env 加载
+                model_name=model_name,
                 system_prompt=system_prompt,
-                temperature=temperature, # 确保 temperature 已从 env 加载
-                max_output_tokens=max_output_tokens # 确保 max_output_tokens 已从 env 加载
+                temperature=temperature,
+                max_output_tokens=max_output_tokens
             )
         elif model_provider == "deepseek":
             logging.info("Initializing DeepSeekDialogueAnalyzer...")
-            analyzer = DeepSeekDialogueAnalyzer(api_key=deepseek_api_key, base_url=deepseek_base_url,
-                                                model_name=deepseek_model_name, system_prompt=system_prompt,
-                                                temperature=temperature, max_output_tokens=max_output_tokens)
+            analyzer = DeepSeekDialogueAnalyzer(
+                api_key=deepseek_api_key,
+                base_url=deepseek_base_url,
+                model_name=deepseek_model_name,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens
+            )
+        elif model_provider == "claude":
+            logging.info("Initializing ClaudeDialogueAnalyzer...")
+            analyzer = ClaudeDialogueAnalyzer(
+                api_key=claude_api_key,
+                model_name=claude_model_name,
+                system_prompt=system_prompt,
+                base_url=claude_base_url,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens
+            )
         else:
-            raise ValueError(f"Unsupported model provider: {model_provider}. Choose 'gemini' or 'deepseek'.")
+            raise ValueError(f"Unsupported model provider: {model_provider}. Choose 'gemini', 'deepseek', or 'claude'.")
 
         if analyzer:
             # --- 获取飞书数据 ---
