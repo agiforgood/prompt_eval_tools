@@ -16,8 +16,8 @@ class GeminiDialogueAnalyzer:
         api_key: str,
         model_name: str, # <--- 添加 model_name
         system_prompt: str, # <--- 添加 system_prompt
-        temperature: float = 0.7,
-        max_output_tokens: int = 2048 # <--- 使用 max_output_tokens
+        temperature: float = 0,
+        max_output_tokens: int = 8192 # <--- 使用 max_output_tokens
     ):
         """
         初始化 GeminiDialogueAnalyzer。

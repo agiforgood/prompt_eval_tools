@@ -16,8 +16,8 @@ class DeepSeekDialogueAnalyzer:
         model_name: str,
         system_prompt: str, # <--- 添加 system_prompt 参数
         base_url: Optional[str] = "https://api.deepseek.com/v1", # DeepSeek API 的基础 URL
-        temperature: float = 0.7,
-        max_output_tokens: int = 2048
+        temperature: float = 0,
+        max_output_tokens: int = 8192
     ):
         """
         初始化 DeepSeekDialogueAnalyzer。
