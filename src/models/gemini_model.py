@@ -7,26 +7,25 @@ from langchain.schema import SystemMessage, HumanMessage
 from .base_model import BaseDialogueAnalyzer
 
 class GeminiDialogueAnalyzer(BaseDialogueAnalyzer):
-    """使用 Gemini 模型分析对话内容的类""" # <--- 更新文档字符串
+    """使用 Google Gemini 模型分析对话内容的类"""
 
-    # --- 修改 __init__ 方法 ---
     def __init__(
         self,
         api_key: str,
-        model_name: str, # <--- 添加 model_name
-        system_prompt: str, # <--- 添加 system_prompt
+        model_name: str,
+        system_prompt: str,
         temperature: float = 0,
-        max_output_tokens: int = 8192 # <--- 使用 max_output_tokens
+        max_output_tokens: int = 8192
     ):
         """
         初始化 GeminiDialogueAnalyzer。
 
         Args:
-            api_key (str): Google API 密钥。
-            model_name (str): 要使用的 Gemini 模型名称 (例如 'gemini-2.5-pro-latest')。
-            system_prompt (str): 用于指导模型的系统提示。
-            temperature (float): 控制生成文本的随机性。
-            max_output_tokens (int): 生成响应的最大 token 数。
+            api_key (str): Google API 密钥
+            model_name (str): 要使用的 Gemini 模型名称
+            system_prompt (str): 用于指导模型的系统提示
+            temperature (float): 控制生成文本的随机性
+            max_output_tokens (int): 生成响应的最大 token 数
         """
         super().__init__(model_name, system_prompt, temperature, max_output_tokens)
         
@@ -36,22 +35,46 @@ class GeminiDialogueAnalyzer(BaseDialogueAnalyzer):
         self.api_key = api_key
 
         try:
-            # 初始化 LangChain 的 ChatGoogleGenerativeAI
+            # 初始化 Gemini 客户端
             self.llm = ChatGoogleGenerativeAI(
-                google_api_key=self.api_key,
-                model=self.model_name, # <--- 使用传入的 model_name
-                temperature=self.temperature, # <--- 使用传入的 temperature
-                max_output_tokens=self.max_output_tokens # <--- 使用传入的 max_output_tokens
-                # LangChain 的 ChatGoogleGenerativeAI 可能没有直接的 base_url 参数
+                model=self.model_name,
+                temperature=self.temperature,
+                max_output_tokens=self.max_output_tokens,
+                google_api_key=self.api_key
             )
             logging.info(f"Gemini client initialized successfully for model: {self.model_name}")
         except Exception as e:
             logging.error(f"Failed to initialize Gemini client: {e}")
             raise ConnectionError(f"Failed to initialize Gemini client: {e}")
-        
-    # --- 结束 __init__ 修改 ---
 
-    # --- 修改 analyze_dialogue 方法 ---
+    def _analyze_dialogue(self, user_prompt_content: str) -> str:
+        """
+        使用 Gemini 模型分析提供的对话内容。
+
+        Args:
+            user_prompt_content (str): 包含对话内容的 JSON 字符串
+
+        Returns:
+            str: 模型的原始响应文本
+        """
+        # 准备系统提示
+        final_system_prompt = self.system_prompt.replace("{{TRANSACTION}}", user_prompt_content)
+
+        # 构建提示
+        prompt = f"{final_system_prompt}\n\n请根据系统提示中的信息进行分析并按要求格式输出。"
+
+        try:
+            logging.info(f"Sending request to Gemini model: {self.model_name}")
+            response = self.llm.invoke(prompt)
+            logging.info("Received response from Gemini.")
+            
+            # 返回原始响应文本
+            return str(response.content)
+
+        except Exception as e:
+            logging.error(f"An error occurred during Gemini API call: {e}")
+            raise  # 让基类的重试机制处理错误
+
     def analyze_dialogue(self, user_prompt_content: str) -> List[Dict[str, Any]]: # <--- 修改返回类型
         """
         使用 Gemini 模型分析提供的对话内容。
@@ -139,4 +162,3 @@ class GeminiDialogueAnalyzer(BaseDialogueAnalyzer):
             traceback.print_exc() # 打印详细的回溯信息
             # 返回与 DeepSeek 一致的错误格式
             return [{"error": f"API call failed: {str(e)}", "raw_response": None}]
-    # --- 结束 analyze_dialogue 修改 ---

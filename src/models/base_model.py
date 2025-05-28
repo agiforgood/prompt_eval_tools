@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from abc import ABC, abstractmethod
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from requests.exceptions import ProxyError, ConnectionError, Timeout
 
 class BaseDialogueAnalyzer(ABC):
     """所有对话分析器的基础类"""
@@ -67,11 +69,11 @@ class BaseDialogueAnalyzer(ABC):
         Returns:
             str: 提取的 JSON 字符串
         """
-        # 首先尝试从 <formal> 标签中提取
-        formal_match = re.search(r'<formal>\s*([\s\S]*?)\s*</formal>', response_text, re.DOTALL)
-        if formal_match:
-            json_string = formal_match.group(1).strip()
-            logging.info("Extracted JSON from <formal> tags.")
+        # 首先尝试从 <schema> 标签中提取
+        schema_match = re.search(r'<schema>\s*([\s\S]*?)\s*</schema>', response_text, re.DOTALL)
+        if schema_match:
+            json_string = schema_match.group(1).strip()
+            logging.info("Extracted JSON from <schema> tags.")
             return json_string
 
         # 如果没有找到 <formal> 标签，尝试从 markdown 代码块中提取
@@ -123,15 +125,42 @@ class BaseDialogueAnalyzer(ABC):
             logging.error(f"Raw content causing error: {response_text}")
             return [{"error": f"Failed to parse JSON response: {json_err}", "raw_response": response_text}]
 
-    @abstractmethod
+    @retry(
+        stop=stop_after_attempt(3),  # 最多重试3次
+        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避重试
+        retry=retry_if_exception_type((ProxyError, ConnectionError, Timeout)),  # 只对特定错误重试
+        reraise=True  # 重试失败后抛出异常
+    )
     def analyze_dialogue(self, user_prompt_content: str) -> List[Dict[str, Any]]:
         """
-        分析对话内容。
+        分析对话内容。这是一个抽象方法，需要被子类实现。
 
         Args:
             user_prompt_content (str): 用户提示内容
 
         Returns:
             List[Dict[str, Any]]: 分析结果列表
+        """
+        try:
+            # 调用子类实现的 _analyze_dialogue 方法
+            response_text = self._analyze_dialogue(user_prompt_content)
+            return self._process_response(response_text)
+        except (ProxyError, ConnectionError, Timeout) as e:
+            logging.error(f"Network error occurred: {str(e)}")
+            raise  # 让重试机制处理这些错误
+        except Exception as e:
+            logging.error(f"An error occurred during API call or processing: {str(e)}")
+            return [{"error": f"API call failed: {str(e)}", "raw_response": str(e)}]
+
+    @abstractmethod
+    def _analyze_dialogue(self, user_prompt_content: str) -> str:
+        """
+        实际执行对话分析的方法。需要被子类实现。
+
+        Args:
+            user_prompt_content (str): 用户提示内容
+
+        Returns:
+            str: 模型的原始响应文本
         """
         pass 

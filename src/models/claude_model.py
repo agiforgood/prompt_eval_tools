@@ -1,7 +1,6 @@
 import logging
 from typing import Optional, Dict, Any, List
-from langchain_anthropic import ChatAnthropic
-from langchain.schema import SystemMessage, HumanMessage
+from anthropic import Anthropic
 from .base_model import BaseDialogueAnalyzer
 
 class ClaudeDialogueAnalyzer(BaseDialogueAnalyzer):
@@ -12,7 +11,7 @@ class ClaudeDialogueAnalyzer(BaseDialogueAnalyzer):
         api_key: str,
         model_name: str,
         system_prompt: str,
-        base_url: Optional[str] = "https://api.oaipro.com/",
+        base_url: Optional[str] = None,
         temperature: float = 0,
         max_output_tokens: int = 8192
     ):
@@ -23,7 +22,7 @@ class ClaudeDialogueAnalyzer(BaseDialogueAnalyzer):
             api_key (str): Anthropic API 密钥
             model_name (str): 要使用的 Claude 模型名称
             system_prompt (str): 用于指导模型的系统提示
-            base_url (str): API 基础 URL
+            base_url (Optional[str]): API 基础 URL
             temperature (float): 控制生成文本的随机性
             max_output_tokens (int): 生成响应的最大 token 数
         """
@@ -36,12 +35,9 @@ class ClaudeDialogueAnalyzer(BaseDialogueAnalyzer):
         self.base_url = base_url
 
         try:
-            # 初始化 LangChain 的 ChatAnthropic
-            self.llm = ChatAnthropic(
-                anthropic_api_key=self.api_key,
-                model=self.model_name,
-                temperature=self.temperature,
-                max_tokens=self.max_output_tokens,
+            # 初始化 Anthropic 客户端
+            self.client = Anthropic(
+                api_key=self.api_key,
                 base_url=self.base_url
             )
             logging.info(f"Claude client initialized successfully for model: {self.model_name}")
@@ -49,7 +45,7 @@ class ClaudeDialogueAnalyzer(BaseDialogueAnalyzer):
             logging.error(f"Failed to initialize Claude client: {e}")
             raise ConnectionError(f"Failed to initialize Claude client: {e}")
 
-    def analyze_dialogue(self, user_prompt_content: str) -> List[Dict[str, Any]]:
+    def _analyze_dialogue(self, user_prompt_content: str) -> str:
         """
         使用 Claude 模型分析提供的对话内容。
 
@@ -57,40 +53,33 @@ class ClaudeDialogueAnalyzer(BaseDialogueAnalyzer):
             user_prompt_content (str): 包含对话内容的 JSON 字符串
 
         Returns:
-            List[Dict[str, Any]]: 分析结果的列表，每个字典代表一条记录。如果出错则返回包含错误信息的字典列表。
+            str: 模型的原始响应文本
         """
         # 准备系统提示
         final_system_prompt = self.system_prompt.replace("{{TRANSACTION}}", user_prompt_content)
 
-        # 构建 LangChain 消息列表
-        user_message = "请根据系统提示中的信息进行分析并按要求格式输出。"
-        messages = [
-            SystemMessage(content=final_system_prompt),
-            HumanMessage(content=user_message)
-        ]
-
         try:
             logging.info(f"Sending request to Claude model: {self.model_name}")
-            response = self.llm.invoke(messages)
-
-            # 提取响应内容
-            response_text = ""
-            if hasattr(response, 'content'):
-                response_text = response.content
-            else:
-                logging.warning(f"Warning: Unexpected response type from Claude invoke: {type(response)}")
-                response_text = str(response)
-
+            
+            # 调用 Claude API
+            response = self.client.messages.create(
+                model=self.model_name,
+                max_tokens=self.max_output_tokens,
+                temperature=self.temperature,
+                system=final_system_prompt,
+                messages=[
+                    {"role": "user", "content": "请根据系统提示中的信息进行分析并按要求格式输出。"}
+                ]
+            )
+            
             logging.info("Received response from Claude.")
             
-            # 使用基类的方法处理响应
-            return self._process_response(response_text)
+            # 返回原始响应文本
+            return response.content[0].text
 
         except Exception as e:
-            logging.error(f"An error occurred during Claude API call or processing: {e}")
-            import traceback
-            traceback.print_exc()
-            return [{"error": f"API call failed: {str(e)}", "raw_response": None}]
+            logging.error(f"An error occurred during Claude API call: {e}")
+            raise  # 让基类的重试机制处理错误
 
 
 

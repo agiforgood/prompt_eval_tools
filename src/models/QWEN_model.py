@@ -3,6 +3,8 @@ from typing import Optional, Dict, Any, List
 from langchain_community.llms import Tongyi
 from langchain.schema import SystemMessage, HumanMessage
 from .base_model import BaseDialogueAnalyzer
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from requests.exceptions import ProxyError, ConnectionError, Timeout
 
 class QWENDialogueAnalyzer(BaseDialogueAnalyzer):
     """使用 Qwen 模型分析对话内容的类"""
@@ -49,6 +51,12 @@ class QWENDialogueAnalyzer(BaseDialogueAnalyzer):
             logging.error(f"Failed to initialize Qwen client: {e}")
             raise ConnectionError(f"Failed to initialize Qwen client: {e}")
 
+    @retry(
+        stop=stop_after_attempt(3),  # 最多重试3次
+        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避重试
+        retry=retry_if_exception_type((ProxyError, ConnectionError, Timeout)),  # 只对特定错误重试
+        reraise=True  # 重试失败后抛出异常
+    )
     def analyze_dialogue(self, user_prompt_content: str) -> List[Dict[str, Any]]:
         """
         使用 Qwen 模型分析提供的对话内容。
@@ -76,8 +84,40 @@ class QWENDialogueAnalyzer(BaseDialogueAnalyzer):
             # 使用基类的方法处理响应
             return self._process_response(response_text)
 
+        except (ProxyError, ConnectionError, Timeout) as e:
+            logging.error(f"Network error occurred: {str(e)}")
+            raise  # 让重试机制处理这些错误
+
         except Exception as e:
             logging.error(f"An error occurred during Qwen API call or processing: {e}")
             import traceback
             traceback.print_exc()
             return [{"error": f"API call failed: {str(e)}", "raw_response": None}]
+
+    def _analyze_dialogue(self, user_prompt_content: str) -> str:
+        """
+        使用 Qwen 模型分析提供的对话内容。
+
+        Args:
+            user_prompt_content (str): 包含对话内容的 JSON 字符串
+
+        Returns:
+            str: 模型的原始响应文本
+        """
+        # 准备系统提示
+        final_system_prompt = self.system_prompt.replace("{{TRANSACTION}}", user_prompt_content)
+
+        # 构建提示
+        prompt = f"{final_system_prompt}\n\n请根据系统提示中的信息进行分析并按要求格式输出。"
+
+        try:
+            logging.info(f"Sending request to Qwen model: {self.model_name}")
+            response = self.llm.invoke(prompt)
+            logging.info("Received response from Qwen.")
+            
+            # 返回原始响应文本
+            return str(response)
+
+        except Exception as e:
+            logging.error(f"An error occurred during Qwen API call: {e}")
+            raise  # 让基类的重试机制处理错误

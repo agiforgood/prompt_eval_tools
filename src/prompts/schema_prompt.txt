@@ -1,7 +1,9 @@
-Output the following schema in JSON format strictly, wrapped in <schema> tags：
+Output the following schema in JSON format strictly, wrapped in <schema> tags. The output should be an array of objects, where each object represents one dialogue analysis：
+
 <schema>
- "output_format": {
-    "编号": "数字",
+[
+  {
+    "编号": int,
     "round5": "对话内容",
     "round10": "对话内容",
     "提交人": "{{modelname}}",
@@ -32,6 +34,25 @@ Output the following schema in JSON format strictly, wrapped in <schema> tags：
     "第10轮中积极关注的对象是？": "孩子/家长/都有",
     "第10轮积极关注对象是否准确？": "准确/不准确",
     "第10轮积极关注对象错误原因": "字符串",
-    "对话编号": "数字"
+    "对话编号": int
   }
+]
 </schema>
+
+注意：
+1. 输出必须是一个 JSON 数组，每个元素是一个包含上述字段的对象
+2. 所有字段值必须严格按照指定的格式填写：
+   - 数字字段（"编号"和"对话编号"）必须是整数，不要加引号
+   - 枚举字段必须严格使用指定的值（如"存在/不存在"、"高共情/中共情/低共情"等）
+   - 字符串字段可以使用任意文本，但必须用双引号包裹
+3. 不要添加任何额外的字段或注释
+4. 确保所有字符串都使用双引号
+5. 字段名必须与飞书多维表格的列名完全匹配
+6. 所有字段都必须存在，即使值为空字符串
+7. 长文本字段（如"讨论过程"、"round5"、"round10"）可以包含换行符，但必须正确转义
+8. 确保 JSON 格式正确，特别是：
+   - 所有字符串值必须用双引号包裹
+   - 数字值不要用引号
+   - 数组和对象必须正确闭合
+   - 最后一个元素后不要有逗号
+9. 根据逻辑判断，如果某些字段不适用或不需要回答，可以使用空字符串（""）作为值

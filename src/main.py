@@ -1,6 +1,7 @@
 import json
 import os
 import logging
+import time
 from dotenv import load_dotenv
 from src.models.gemini_model import GeminiDialogueAnalyzer
 from src.models.deepseek_model import DeepSeekDialogueAnalyzer
@@ -9,6 +10,7 @@ from src.utils.feishu_client import fetch_bitable_records, write_records_to_bita
 import math
 import concurrent.futures
 from functools import partial
+from requests.exceptions import ProxyError, ConnectionError, Timeout
 # 移除 csv 和 Path 的导入
 # import csv
 # from pathlib import Path
@@ -26,150 +28,121 @@ OUTPUT_FILENAME = "output.txt"
 
 # --- 修改：用于并行执行的辅助函数，增加写入本地文件的逻辑 ---
 def analyze_and_write_batch(
-    batch_records_input: list, # 输入的原始飞书记录
+    batch_records_input: list,
     batch_num: int,
     total_batches: int,
     analyzer,
-    feishu_write_app_token: str, # 目标 Bitable App Token
-    feishu_write_table_id: str,  # 目标 Bitable Table ID
-    write_token: str # 用于写入的认证 Token
+    feishu_write_app_token: str,
+    feishu_write_table_id: str,
+    write_token: str,
+    max_retries: int = 3,
+    retry_delay: int = 5
 ):
     """
     分析单个批次的记录，并将结果写入飞书多维表格。
+    
     Args:
-        batch_records_input: 当前批次的原始飞书记录列表。
-        batch_num: 当前批次的编号 (从 1 开始)。
-        total_batches: 总批次数。
-        analyzer: 模型分析器实例。
-        feishu_write_app_token: 目标 Bitable App Token.
-        feishu_write_table_id: 目标 Bitable Table ID.
-        write_token: 用于写入的认证 Token.
-    Returns:
-        bool: 当前批次处理和写入是否成功。
+        batch_records_input: 当前批次的原始飞书记录列表
+        batch_num: 当前批次的编号 (从 1 开始)
+        total_batches: 总批次数
+        analyzer: 模型分析器实例
+        feishu_write_app_token: 目标 Bitable App Token
+        feishu_write_table_id: 目标 Bitable Table ID
+        write_token: 用于写入的认证 Token
+        max_retries: 最大重试次数
+        retry_delay: 重试延迟时间（秒）
     """
     logging.info(f"--- Processing Batch {batch_num}/{total_batches} ---")
-    # 将原始记录转换为 JSON 字符串以传递给 LLM
     user_prompt_data = json.dumps(batch_records_input, ensure_ascii=False, indent=2)
-    batch_success = False # 标记当前批次是否成功
+    batch_success = False
+    retry_count = 0
 
-    try:
-        # 调用 LLM 分析
-        result = analyzer.analyze_dialogue(user_prompt_content=user_prompt_data)
-        logging.info(f"--- LLM Analysis Finished for Batch {batch_num}/{total_batches} ---")
+    while retry_count < max_retries and not batch_success:
+        try:
+            if retry_count > 0:
+                logging.info(f"Retry attempt {retry_count} for batch {batch_num}")
+                time.sleep(retry_delay)  # 在重试之前等待
 
-        # --- 修改：增加对 LLM 结果有效性的检查 ---
-        # 检查 LLM 是否返回了错误标记，或者结果不是预期的列表或字典
-        is_llm_error = False
-        if isinstance(result, list) and result and isinstance(result[0], dict) and "error" in result[0]:
-            is_llm_error = True
-            logging.error(f"LLM analysis error for batch {batch_num}: {result[0].get('error', 'Unknown LLM error')}")
-            # 可以选择记录 raw_response
-        elif not isinstance(result, (list, dict)): # 如果返回的不是列表也不是字典
-             is_llm_error = True
-             logging.error(f"LLM returned an unexpected data type for batch {batch_num}: {type(result)}")
+            # 调用 LLM 分析
+            result = analyzer.analyze_dialogue(user_prompt_content=user_prompt_data)
+            logging.info(f"--- LLM Analysis Finished for Batch {batch_num}/{total_batches} ---")
 
-        if is_llm_error:
-            # LLM 分析失败，不尝试写入飞书，直接标记批次失败
-            logging.warning(f"Skipping Feishu write for batch {batch_num} due to LLM analysis error.")
-        # --- 结束检查 ---
+            # 检查结果
+            if isinstance(result, list) and result and isinstance(result[0], dict) and "error" in result[0]:
+                error_message = result[0].get('error', 'Unknown LLM error')
+                logging.error(f"LLM analysis error for batch {batch_num}: {error_message}")
+                raise Exception(error_message)
 
-        # --- 只有在 LLM 没有返回错误时才继续处理和写入 ---
-        elif isinstance(result, list) and result: # 假设成功的 result 是一个评估项列表 (list of dicts)
-            logging.info(f"LLM returned {len(result)} records for batch {batch_num}. Preparing to write...")
+            # 处理结果
+            if isinstance(result, list) and result:
+                logging.info(f"LLM returned {len(result)} records for batch {batch_num}. Preparing to write...")
+                processed_records_for_feishu = []
+                
+                for record in result:
+                    if not isinstance(record, dict):
+                        logging.warning(f"Skipping non-dict item in LLM result for batch {batch_num}: {record}")
+                        continue
 
-            # --- 数据类型转换 ---
-            processed_records_for_feishu = []
-            for record in result:
-                if not isinstance(record, dict):
-                    logging.warning(f"Skipping non-dict item in LLM result for batch {batch_num}: {record}")
-                    continue
+                    processed_record = record.copy()
+                    has_error = False
+                    
+                    # 处理数字类型转换
+                    for field in NUMERIC_FIELDS:
+                        if field in processed_record:
+                            try:
+                                processed_record[field] = int(processed_record[field])
+                            except (ValueError, TypeError) as e:
+                                has_error = True
+                                logging.error(f"Batch {batch_num}: Invalid numeric value for field '{field}': '{processed_record[field]}'. Error: {e}")
+                                break
+                    
+                    if not has_error:
+                        processed_records_for_feishu.append(processed_record)
 
-                processed_record = record.copy() # 创建副本以修改
-                for field in NUMERIC_FIELDS:
-                    if field in processed_record:
-                        original_value = processed_record[field]
-                        try:
-                            # 尝试转换为整数
-                            processed_record[field] = int(original_value)
-                        except (ValueError, TypeError) as e:
-                            logging.warning(f"Batch {batch_num}: Could not convert field '{field}' value '{original_value}' to int. Keeping original. Error: {e}")
-                            # 保留原始值或设置为 None/0，取决于你的需求
+                if processed_records_for_feishu:
+                    # 写入本地文件
+                    try:
+                        with open(OUTPUT_FILENAME, 'a', encoding='utf-8') as f:
+                            for record_to_write in processed_records_for_feishu:
+                                f.write(json.dumps(record_to_write, ensure_ascii=False) + '\n')
+                        logging.info(f"Successfully appended batch {batch_num} results to {OUTPUT_FILENAME}")
+                    except Exception as file_write_error:
+                        logging.error(f"Failed to write batch {batch_num} results to {OUTPUT_FILENAME}: {file_write_error}")
+                        raise
 
-                processed_records_for_feishu.append(processed_record)
-            # --- 结束数据类型转换 ---
+                    # 写入飞书
+                    write_success = write_records_to_bitable(
+                        app_token=feishu_write_app_token,
+                        table_id=feishu_write_table_id,
+                        records=processed_records_for_feishu,
+                        bearer_token=write_token
+                    )
+                    
+                    if write_success:
+                        logging.info(f"Successfully wrote batch {batch_num} results to Feishu.")
+                        batch_success = True
+                        break  # 成功完成，退出重试循环
+                    else:
+                        logging.error(f"Failed to write batch {batch_num} results to Feishu.")
+                        raise Exception("Failed to write to Feishu")
 
-            if processed_records_for_feishu:
-                # --- 新增：写入本地文件 ---
-                try:
-                    with open(OUTPUT_FILENAME, 'a', encoding='utf-8') as f:
-                        for record_to_write in processed_records_for_feishu:
-                            # 将每个记录字典转换为 JSON 字符串并写入，每个记录占一行
-                            f.write(json.dumps(record_to_write, ensure_ascii=False) + '\n')
-                    logging.info(f"Successfully appended batch {batch_num} results to {OUTPUT_FILENAME}")
-                except Exception as file_write_error:
-                    logging.error(f"Failed to write batch {batch_num} results to {OUTPUT_FILENAME}: {file_write_error}")
-                # --- 结束新增 ---
-
-                # 调用写入飞书的函数
-                write_success = write_records_to_bitable(
-                    app_token=feishu_write_app_token,
-                    table_id=feishu_write_table_id,
-                    records=processed_records_for_feishu,
-                    bearer_token=write_token
-                )
-                if write_success:
-                    logging.info(f"Successfully wrote batch {batch_num} results to Feishu.")
-                    batch_success = True
-                else:
-                    logging.error(f"Failed to write batch {batch_num} results to Feishu.")
             else:
-                 logging.warning(f"Batch {batch_num}: No valid records to write after processing LLM results.")
-                 batch_success = True # 这种情况也算处理完成
+                logging.warning(f"Batch {batch_num}: No valid records to write after processing.")
+                raise Exception("No valid records to write")
 
-        elif isinstance(result, dict): # 如果结果是单个字典
-             logging.info(f"LLM returned a single dict for batch {batch_num}. Preparing to write...")
-             processed_record = result.copy()
-             for field in NUMERIC_FIELDS:
-                 if field in processed_record:
-                     original_value = processed_record[field]
-                     try:
-                         processed_record[field] = int(original_value)
-                     except (ValueError, TypeError) as e:
-                         logging.warning(f"Batch {batch_num}: Could not convert field '{field}' value '{original_value}' to int. Keeping original. Error: {e}")
+        except (ProxyError, ConnectionError, Timeout) as e:
+            retry_count += 1
+            logging.error(f"Network error occurred for batch {batch_num} (attempt {retry_count}/{max_retries}): {str(e)}")
+            if retry_count >= max_retries:
+                logging.error(f"Max retries exceeded for batch {batch_num}")
+                return False
 
-             # --- 新增：写入本地文件 ---
-             try:
-                 with open(OUTPUT_FILENAME, 'a', encoding='utf-8') as f:
-                     # 将单个记录字典转换为 JSON 字符串并写入
-                     f.write(json.dumps(processed_record, ensure_ascii=False) + '\n')
-                 logging.info(f"Successfully appended batch {batch_num} single result to {OUTPUT_FILENAME}")
-             except Exception as file_write_error:
-                 logging.error(f"Failed to write batch {batch_num} single result to {OUTPUT_FILENAME}: {file_write_error}")
-             # --- 结束新增 ---
-
-             # 调用写入飞书的函数
-             write_success = write_records_to_bitable(
-                 app_token=feishu_write_app_token,
-                 table_id=feishu_write_table_id,
-                 records=[processed_record], # 单个记录也用列表包装
-                 bearer_token=write_token
-             )
-             if write_success:
-                 logging.info(f"Successfully wrote batch {batch_num} single result to Feishu.")
-                 batch_success = True
-             else:
-                 logging.error(f"Failed to write batch {batch_num} single result to Feishu.")
-
-        else: # 处理空列表或其他意外情况 (非错误，但无数据)
-            logging.warning(f"Batch {batch_num} returned an empty list from LLM. Nothing to write.")
-            batch_success = True # 没有结果也算处理完成
-        # --- 结束写入逻辑 ---
-
-    except Exception as batch_error:
-        logging.error(f"An unexpected error occurred during processing/writing of batch {batch_num}: {batch_error}")
-        import traceback
-        traceback.print_exc()
-        # 异常发生，标记批次失败
+        except Exception as e:
+            retry_count += 1
+            logging.error(f"Error processing batch {batch_num} (attempt {retry_count}/{max_retries}): {str(e)}")
+            if retry_count >= max_retries:
+                logging.error(f"Max retries exceeded for batch {batch_num}")
+                return False
 
     return batch_success
 
@@ -195,14 +168,11 @@ def main():
 
         # --- 获取模型配置 ---
         google_api_key = os.getenv("GOOGLE_API_KEY")
-        model_name = os.getenv("MODEL_NAME", "gemini-pro")
         temperature = float(os.getenv("TEMPERATURE", 0))
         max_output_tokens = int(os.getenv("MAX_OUTPUT_TOKENS", 2048))
         deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL")
-        deepseek_model_name = os.getenv("DEEPSEEK_MODEL_NAME")
         claude_api_key = os.getenv("CLAUDE_API_KEY")
-        claude_model_name = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-4-20250514")
         claude_base_url = os.getenv("CLAUDE_BASE_URL", "https://api.oaipro.com/")
         model_provider = os.getenv("MODEL_PROVIDER", "gemini").lower() # 默认为 gemini
 
@@ -228,7 +198,6 @@ def main():
         if not feishu_write_app_token or not feishu_write_table_id:
             raise ValueError("FEISHU_APP_TOKEN or FEISHU_TABLE_ID for writing is not set.")
 
-
         # --- 初始化模型分析器 ---
         analyzer = None
         instructions_prompt_path = "src/prompts/instructions_prompt.txt"
@@ -248,7 +217,16 @@ def main():
         with open(schema_prompt_path, 'r', encoding='utf-8') as f:
             schema_prompt = f.read()
             # 根据当前使用的模型替换占位符
-            current_model_name = model_name if model_provider == "gemini" else deepseek_model_name
+            if model_provider == "gemini":
+                current_model_name = os.getenv("GEMINI_MODEL_NAME")
+            elif model_provider == "deepseek":
+                current_model_name = os.getenv("DEEPSEEK_MODEL_NAME")
+            elif model_provider == "claude":
+                current_model_name = os.getenv("CLAUDE_MODEL_NAME")
+            elif model_provider == "qwen":
+                current_model_name = os.getenv("QWEN_MODEL_NAME")
+            else:
+                current_model_name = "unknown-model"
             schema_prompt = schema_prompt.replace("{{modelname}}", current_model_name)
             
         # 组合完整的 system prompt
@@ -258,7 +236,7 @@ def main():
             logging.info("Initializing GeminiDialogueAnalyzer...")
             analyzer = GeminiDialogueAnalyzer(
                 api_key=google_api_key,
-                model_name=model_name,
+                model_name=os.getenv("GEMINI_MODEL_NAME"),
                 system_prompt=system_prompt,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens
@@ -268,7 +246,7 @@ def main():
             analyzer = DeepSeekDialogueAnalyzer(
                 api_key=deepseek_api_key,
                 base_url=deepseek_base_url,
-                model_name=deepseek_model_name,
+                model_name=os.getenv("DEEPSEEK_MODEL_NAME"),
                 system_prompt=system_prompt,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens
@@ -277,14 +255,24 @@ def main():
             logging.info("Initializing ClaudeDialogueAnalyzer...")
             analyzer = ClaudeDialogueAnalyzer(
                 api_key=claude_api_key,
-                model_name=claude_model_name,
+                model_name=os.getenv("CLAUDE_MODEL_NAME"),
                 system_prompt=system_prompt,
                 base_url=claude_base_url,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens
             )
+        elif model_provider == "qwen":
+            logging.info("Initializing QWENDialogueAnalyzer...")
+            from src.models.QWEN_model import QWENDialogueAnalyzer
+            analyzer = QWENDialogueAnalyzer(
+                api_key=os.getenv("QWEN_API_KEY"),
+                model_name=os.getenv("QWEN_MODEL_NAME"),
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens
+            )
         else:
-            raise ValueError(f"Unsupported model provider: {model_provider}. Choose 'gemini', 'deepseek', or 'claude'.")
+            raise ValueError(f"Unsupported model provider: {model_provider}. Choose 'gemini', 'deepseek', 'claude', or 'qwen'.")
 
         if analyzer:
             # --- 获取飞书数据 ---
@@ -396,7 +384,9 @@ def main():
                         analyzer,
                         feishu_write_app_token, # 传递写入 App Token
                         feishu_write_table_id,  # 传递写入 Table ID
-                        feishu_writer_token     # 传递写入 Token
+                        feishu_writer_token,     # 传递写入 Token
+                        max_retries=3,
+                        retry_delay=5
                     )
                     futures.append(executor.submit(task))
 
