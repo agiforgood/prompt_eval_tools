@@ -202,7 +202,7 @@ def main():
         deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL")
         deepseek_model_name = os.getenv("DEEPSEEK_MODEL_NAME")
         claude_api_key = os.getenv("CLAUDE_API_KEY")
-        claude_model_name = os.getenv("CLAUDE_MODEL_NAME", "claude-3-opus-20240229")
+        claude_model_name = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-4-20250514")
         claude_base_url = os.getenv("CLAUDE_BASE_URL", "https://api.oaipro.com/")
         model_provider = os.getenv("MODEL_PROVIDER", "gemini").lower() # 默认为 gemini
 

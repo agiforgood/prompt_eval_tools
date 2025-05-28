@@ -3,11 +3,10 @@ import json
 import re # <--- 添加 re
 from typing import Optional, Dict, Any, List # <--- 修改 typing 导入
 from langchain_google_genai import ChatGoogleGenerativeAI
-
-# --- 添加 LangChain 消息类型 ---
 from langchain.schema import SystemMessage, HumanMessage
+from .base_model import BaseDialogueAnalyzer
 
-class GeminiDialogueAnalyzer:
+class GeminiDialogueAnalyzer(BaseDialogueAnalyzer):
     """使用 Gemini 模型分析对话内容的类""" # <--- 更新文档字符串
 
     # --- 修改 __init__ 方法 ---
@@ -29,18 +28,12 @@ class GeminiDialogueAnalyzer:
             temperature (float): 控制生成文本的随机性。
             max_output_tokens (int): 生成响应的最大 token 数。
         """
+        super().__init__(model_name, system_prompt, temperature, max_output_tokens)
+        
         if not api_key:
             raise ValueError("Google API key is required.")
-        if not model_name:
-            raise ValueError("Gemini model name is required.")
-        if not system_prompt:
-             raise ValueError("System prompt is required.")
 
         self.api_key = api_key
-        self.model_name = model_name
-        self.system_prompt = system_prompt
-        self.temperature = temperature
-        self.max_output_tokens = max_output_tokens
 
         try:
             # 初始化 LangChain 的 ChatGoogleGenerativeAI

@@ -1,11 +1,10 @@
 import logging
-import json
-import re
 from typing import Optional, Dict, Any, List
 from langchain_community.llms import Tongyi
 from langchain.schema import SystemMessage, HumanMessage
+from .base_model import BaseDialogueAnalyzer
 
-class QWENDialogueAnalyzer:
+class QWENDialogueAnalyzer(BaseDialogueAnalyzer):
     """使用 Qwen 模型分析对话内容的类"""
 
     def __init__(
@@ -28,18 +27,12 @@ class QWENDialogueAnalyzer:
             temperature (float): 控制生成文本的随机性
             max_output_tokens (int): 生成响应的最大 token 数
         """
+        super().__init__(model_name, system_prompt, temperature, max_output_tokens)
+        
         if not api_key:
             raise ValueError("DashScope API key is required.")
-        if not model_name:
-            raise ValueError("Qwen model name is required.")
-        if not system_prompt:
-            raise ValueError("System prompt is required.")
 
         self.api_key = api_key
-        self.model_name = model_name
-        self.system_prompt = system_prompt
-        self.temperature = temperature
-        self.max_output_tokens = max_output_tokens
         self.base_url = base_url
 
         try:
@@ -79,36 +72,9 @@ class QWENDialogueAnalyzer:
             # 提取响应内容
             response_text = str(response)
             logging.info("Received response from Qwen.")
-
-            # 处理 JSON 响应
-            response_text = response_text.strip()
-            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text, re.DOTALL)
-            if json_match:
-                json_string = json_match.group(1).strip()
-                logging.info("Extracted JSON block from markdown.")
-            else:
-                json_string = response_text
-                first_brace = json_string.find('[')
-                last_brace = json_string.rfind(']')
-                if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-                    json_string = json_string[first_brace:last_brace+1]
-                    logging.info("Attempting to parse extracted array-like string.")
-                else:
-                    logging.warning("Could not reliably find JSON array structure in the response.")
-
-            try:
-                analysis_result = json.loads(json_string)
-                if isinstance(analysis_result, list):
-                    logging.info(f"Successfully parsed JSON array response from Qwen. Records found: {len(analysis_result)}")
-                    return analysis_result
-                else:
-                    logging.error(f"Qwen response parsed but is not the expected list format. Type: {type(analysis_result)}")
-                    return [{"error": "LLM response is not a JSON array", "raw_response": response_text}]
-
-            except json.JSONDecodeError as json_err:
-                logging.error(f"Failed to parse JSON response from Qwen: {json_err}")
-                logging.error(f"Raw content causing error: {response_text}")
-                return [{"error": f"Failed to parse JSON response: {json_err}", "raw_response": response_text}]
+            
+            # 使用基类的方法处理响应
+            return self._process_response(response_text)
 
         except Exception as e:
             logging.error(f"An error occurred during Qwen API call or processing: {e}")
