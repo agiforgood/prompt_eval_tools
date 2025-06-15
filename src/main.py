@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # --- 定义需要转换为数字的字段 ---
 # 根据 system_prompt.txt 中的 "数字" 标记
-NUMERIC_FIELDS = ["编号", "对话编号"]
+NUMERIC_FIELDS = ["编号", "Q1文本编号"]
 
 # --- 定义输出文件名 ---
 OUTPUT_FILENAME = "output.txt"
@@ -289,6 +289,7 @@ def main():
                 return # 没有数据则退出
 
             logging.info(f"Successfully fetched {len(records)} records from Feishu.")
+            logging.info(f"records: {records}")
 
             # --- 修改：调整打印和检查逻辑 ---
             logging.info("--- Printing first few fetched records from Feishu ---")

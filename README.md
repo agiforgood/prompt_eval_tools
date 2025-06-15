@@ -1,33 +1,15 @@
 
 # AI Prompt 对话评估工具
 
-本项目是一个使用大型语言模型（LLM）自动分析和评估对话记录的工具。它从飞书多维表格读取对话数据，利用 Gemini 或 DeepSeek 模型进行分析，并将结构化的评估结果写回飞书表格，并保存到本地文件以便调试测试。
+本项目要求
+1. 一个脚本实现查询某个飞书表格的完整字段内容，选项内容的。
+2. 大语言模型（LLM）在提示词的指导下，按规定schema填写飞书表格问卷，填写结果保存起来。
+3. 调用飞书api，写入大模型的问卷填写结果。
+4. 一个脚本拉取AI和人类专家填写的问卷内容进行比较，统计出正确率。显示出填写不一致的地方。
+
 
 ## 目录
 
-- [AI Prompt 对话评估工具](#ai-prompt-对话评估工具)
-  - [目录](#目录)
-  - [功能概述](#功能概述)
-  - [使用说明](#使用说明)
-    - [环境配置](#环境配置)
-    - [环境变量配置 (`.env`)](#环境变量配置-env)
-    - [运行程序](#运行程序)
-  - [软件设计](#软件设计)
-    - [架构设计](#架构设计)
-    - [功能模块](#功能模块)
-    - [数据流](#数据流)
-    - [核心代码逻辑](#核心代码逻辑)
-    - [系统提示模板](#系统提示模板)
-    - [性能优化](#性能优化)
-    - [错误处理](#错误处理)
-    - [日志记录](#日志记录)
-  - [维护注意事项](#维护注意事项)
-  - [未来改进方向 (TODO)](#未来改进方向-todo)
-
-## 功能概述
-
-- **数据读取**：从指定的飞书多维表格视图中读取对话记录（目前固定读取 `编号`, `round5`, `round10` 字段）。
-- **数据去重**：在进行分析前，根据 `编号` 字段的值对读取的记录进行去重，确保具有相同 `编号` 的记录只处理一次（保留首次出现的记录）。
 - **数据分析**：根据选择的模型提供商（Gemini 或 DeepSeek）和系统提示 (`src/prompts/system_prompt.txt`)，对对话数据进行批量分析。
 - **结果输出**：
     - 将 LLM 生成的结构化分析结果写回到源飞书多维表格中。
@@ -76,21 +58,12 @@ FEISHU_READ_APP_TOKEN="YOUR_FEISHU_READ_BITABLE_APP_TOKEN" # 例如：bascn*****
 FEISHU_READ_TABLE_ID="YOUR_FEISHU_READ_BITABLE_TABLE_ID"   # 例如：tbl********
 FEISHU_READ_VIEW_ID="YOUR_FEISHU_READ_BITABLE_VIEW_ID"     # 例如：vew********
 
-# (可选) 如果无法使用 App ID/Secret 获取 Token，可以配置静态 Bearer Token (不推荐)
-# FEISHU_BEARER_TOKEN="YOUR_STATIC_FEISHU_BEARER_TOKEN" # 优先使用 App ID/Secret
-
 # 注意：当前设计中，写入操作会写回读取的同一个表格 (FEISHU_READ_APP_TOKEN 和 FEISHU_READ_TABLE_ID)
 # 写入操作强制使用通过 FEISHU_APP_ID 和 FEISHU_APP_SECRET 获取的动态 Token
 ```
 **重要** :
 - 确保为所选的 MODEL_PROVIDER 提供了对应的 API 密钥。
 - 飞书写入操作依赖于 FEISHU_APP_ID 和 FEISHU_APP_SECRET 来获取具有写入权限的 tenant_access_token 。
-
-### 运行程序
-配置好 .env 文件后，在项目根目录下运行主程序：
-```bash
-python -m src/main
-```
 
 程序将开始执行数据读取、分析和写入流程。日志信息会输出到控制台。分析结果将写入配置的飞书表格和本地 output.txt 文件。
 
@@ -173,17 +146,8 @@ python -m src/main
 10. 完成 : 所有批次处理完毕， main.py 输出总结信息并退出。
 
 ### 核心代码逻辑
-- main.py:main() : 程序入口，负责初始化、协调数据流和并行处理。
-- main.py:analyze_and_write_batch() : 并行任务单元，负责单个批次的 LLM 调用、结果处理、本地文件写入和飞书写入。
-- models/*.py:analyze_dialogue() : 各模型分析器的核心方法，封装 LLM API 调用和响应解析。
-- utils/feishu_client.py:fetch_bitable_records() : 实现飞书数据读取和分页逻辑。
-- utils/feishu_client.py:write_records_to_bitable() : 实现飞书数据批量写入逻辑。
-- utils/feishu_client.py:get_tenant_access_token() : 实现动态获取飞书访问令牌的逻辑。
 
-### 系统提示模板
-- 文件 : src/prompts/system_prompt.txt
-- 用途 : 指导 LLM 理解任务、遵循评估维度，并按要求的 JSON 格式输出结果。
-- 关键 : 包含 {{TRANSACTION}} 占位符，程序运行时会将批次的对话数据（JSON 字符串）替换到此处。
+### 提示词模板
 
 ### 性能优化
 - 并行处理 : 使用 concurrent.futures.ThreadPoolExecutor 对数据批次进行并行分析和写入，显著减少总处理时间。批次大小 ( batch_size ) 和并发线程数 ( max_workers ) 可在 main.py 中调整。
@@ -230,23 +194,4 @@ python -m src/main
         1.  **环境变量**：更新 <mcfile name=".env" path="/Users/bytedance/KaylaProject/ai_prompt_eval/.env"></mcfile> 文件中与飞书表格相关的配置，例如 `FEISHU_READ_APP_TOKEN`, `FEISHU_READ_TABLE_ID`, `FEISHU_READ_VIEW_ID` 等，确保它们指向新的表格。
         2.  **系统提示**：检查并更新 <mcfile name="system_prompt.txt" path="/Users/bytedance/KaylaProject/ai_prompt_eval/src/prompts/system_prompt.txt"></mcfile> 文件中定义的 `output_format` JSON 结构，确保其字段名和结构与**新表格**的字段完全匹配。
 
-7.  **相关链接**：
-    *   **飞书多维表格测试表**:
-    [测试表链接] (https://westlakeaiforgood.feishu.cn/wiki/AsXowukCvi3Oy4kKhYpci96znbf?table=tblEDNg0pQrMoHLS&view=vewYc4EEVR)
-    *   **飞书租户应用配置**: 
-    [应用配置地址] (https://open.feishu.cn/app/cli_a88593592e1e500b/baseinfo")
-
 ## 未来改进方向 (TODO)
-1. 支持更多模型 : 增加对其他 LLM 提供商（如 OpenAI GPT 系列）的支持。
-2. 优化并行策略 : 根据系统资源或 API 速率限制动态调整批次大小和并发数。
-3. 增强错误恢复 : 为失败的批次（LLM 调用或飞书写入失败）实现自动重试机制。
-4. 改进日志系统 :
-   - 增加更详细的日志级别（如 DEBUG）。
-   - 支持将日志输出到文件。
-   - 考虑使用结构化日志。
-5. 健壮性提升 :
-   - 增加对输入数据（飞书记录）的校验。
-   - 更细致地处理网络瞬时错误。
-6. 配置管理 : 使用更专业的配置文件格式（如 YAML）替代部分 .env 配置。
-7. 测试 : 添加单元测试和集成测试，确保代码质量和功能稳定性。
-8. 结果校验 : 对 LLM 返回结果的结构和内容进行更严格的校验。

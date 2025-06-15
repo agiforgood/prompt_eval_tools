@@ -39,32 +39,8 @@ from utils.feishu_client import get_tenant_access_token
 
 # 需要比对的字段列表（可根据实际表格调整）
 COMPARISON_FIELDS = [
-    "第5轮是否存在共情？",
-    "第5轮回复共情程度是？",
-    "第5轮共情对象是？",
-    "第5轮共情是否匹配",
-    "第5轮共情不匹配原因",
-    "第5轮共情程度是否准确？",
-    "第5轮共情程度不准确原因",
-    "第5轮共情对象是否准确？",
-    "第5轮共情对象错误原因",
-    "第10轮是否存在共情？",
-    "第10轮共情程度是？",
     "第10轮共情程度是否准确？",
-    "第10轮共情程度不准确原因",
-    "第10轮共情对象是？",
-    "第10轮教练共情对象是否准确？",
-    "第10轮共情对象错误原因",
-    "第10轮共情是否匹配",
-    "第10轮共情不匹配原因",
-    "第5轮积极关注是否使用",
-    "第5轮积极关注的对象是？",
-    "第5轮积极关注对象是否准确？",
-    "第5轮积极关注对象错误原因",
-    "第10轮积极关注是否使用",
-    "第10轮中积极关注的对象是？",
-    "第10轮积极关注对象是否准确？",
-    "第10轮积极关注对象错误原因"
+    "第10轮共情程度不准确原因"
 ]
 
 def alignment_check(field_name: str, human_eval: Dict, ai_eval: Dict) -> bool:
@@ -87,18 +63,34 @@ def calculate_alignment_stats_full(
     """
     基于全量字段数据，计算一致性统计。
     """
+    # 调试日志：打印输入参数
+    logging.debug(f"输入记录数: {len(records)}")
+    logging.debug(f"人类专家名称: {human_expert_name}")
+    logging.debug(f"AI评估者名称: {ai_evaluator_name}")
+    
     # 按编号分组
     dialog_data = {}
     for record in records:
         dialog_id = record.get("编号")
         if dialog_id is None:
+            logging.warning(f"发现一条记录没有编号: {record}")
             continue
         if dialog_id not in dialog_data:
             dialog_data[dialog_id] = {"human": {}, "ai": {}}
-        if record.get("提交人") == human_expert_name:
+        submitter = record.get("提交人")
+        if submitter == human_expert_name:
             dialog_data[dialog_id]["human"] = record
-        elif record.get("提交人") == ai_evaluator_name:
+            logging.debug(f"找到人类专家记录 - 对话ID: {dialog_id}")
+        elif submitter == ai_evaluator_name:
             dialog_data[dialog_id]["ai"] = record
+            logging.debug(f"找到AI评估者记录 - 对话ID: {dialog_id}")
+        else:
+            logging.warning(f"未知提交人: {submitter} - 对话ID: {dialog_id}")
+
+    # 调试日志：打印分组结果
+    logging.debug(f"分组后的对话数: {len(dialog_data)}")
+    for dialog_id, data in dialog_data.items():
+        logging.debug(f"对话 {dialog_id}: 人类记录: {bool(data['human'])}, AI记录: {bool(data['ai'])}")
 
     total_comparisons = 0
     total_matches = 0
@@ -108,20 +100,31 @@ def calculate_alignment_stats_full(
 
     for dialog_id, data in dialog_data.items():
         if not data["human"] or not data["ai"]:
+            logging.warning(f"对话 {dialog_id} 缺少人类或AI评估记录")
             continue
         dialog_matches[dialog_id] = 0
         dialog_comparisons = 0
         for field in COMPARISON_FIELDS:
-            if alignment_check(field, data["human"], data["ai"]):
+            human_value = data["human"].get(field)
+            ai_value = data["ai"].get(field)
+            is_match = alignment_check(field, data["human"], data["ai"])
+            logging.debug(f"对话 {dialog_id} - 字段 {field}: 人类值={human_value}, AI值={ai_value}, 匹配={is_match}")
+            
+            if is_match:
                 total_matches += 1
                 dialog_matches[dialog_id] += 1
                 field_matches[field] += 1
             else:
-                mismatches.append((dialog_id, field, data["human"].get(field, "N/A"), data["ai"].get(field, "N/A")))
+                mismatches.append((dialog_id, field, human_value, ai_value))
             total_comparisons += 1
             dialog_comparisons += 1
         if dialog_comparisons > 0:
             dialog_matches[dialog_id] = round(dialog_matches[dialog_id] / dialog_comparisons * 100, 2)
+
+    # 调试日志：打印最终统计结果
+    logging.debug(f"总比较次数: {total_comparisons}")
+    logging.debug(f"总匹配次数: {total_matches}")
+    logging.debug(f"总体匹配率: {round(total_matches / total_comparisons * 100, 2) if total_comparisons > 0 else 0}%")
 
     overall_match_rate = round(total_matches / total_comparisons * 100, 2) if total_comparisons > 0 else 0
     field_match_rates = {field: round(field_matches[field] / len(dialog_data) * 100, 2) if len(dialog_data) > 0 else 0 for field in COMPARISON_FIELDS}
@@ -164,7 +167,11 @@ def print_alignment_report_full(
             logging.info(f"  字段 [{field}] | 人类: {human_val} | AI: {ai_val} | 一致: {is_match}")
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    # 设置日志级别
+    debug_mode = input("是否开启调试模式？(y/n): ").lower() == 'y'
+    log_level = logging.DEBUG if debug_mode else logging.INFO
+    logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
+    
     app_token = os.getenv("FEISHU_READ_APP_TOKEN")
     table_id = os.getenv("FEISHU_READ_TABLE_ID")
     view_id = os.getenv("FEISHU_READ_VIEW_ID")
@@ -179,8 +186,28 @@ def main():
         return
     records = fetch_all_fields_from_bitable(app_token, table_id, view_id, token)
     logging.info(f"共获取{len(records)}条记录。")
+    logging.info(f"records: {records[0]}")
+    
+    if debug_mode:
+        # 打印前3条记录的完整内容用于调试
+        logging.debug("=== 前3条记录的完整内容 ===")
+        for i, record in enumerate(records[:3]):
+            logging.debug(f"记录 {i+1}:")
+            for key, value in record.items():
+                logging.debug(f"  {key}: {value}")
+    
     human_expert_name = input("请输入人类专家的名称: ")
     ai_evaluator_name = input("请输入AI评估者的名称: ")
+    
+    if debug_mode:
+        # 验证输入的名称是否在记录中存在
+        submitters = set(record.get("提交人") for record in records)
+        logging.debug(f"所有提交人: {submitters}")
+        if human_expert_name not in submitters:
+            logging.warning(f"警告：人类专家名称 '{human_expert_name}' 未在记录中找到")
+        if ai_evaluator_name not in submitters:
+            logging.warning(f"警告：AI评估者名称 '{ai_evaluator_name}' 未在记录中找到")
+    
     overall_match_rate, dialog_matches, field_match_rates, mismatches, dialog_data = calculate_alignment_stats_full(
         records,
         human_expert_name,
