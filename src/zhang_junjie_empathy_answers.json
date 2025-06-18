@@ -1,0 +1,82 @@
+[
+  {
+    "dialog_id": "1",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "2",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "3",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "4",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "5",
+    "round5_need_empathy": "来访者未表达情绪或想法，不需要共情"
+  },
+  {
+    "dialog_id": "6",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "7",
+    "round5_need_empathy": "来访者未表达情绪或想法，不需要共情"
+  },
+  {
+    "dialog_id": "8",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "9",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "10",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "11",
+    "round5_need_empathy": "来访者未表达情绪或想法，不需要共情"
+  },
+  {
+    "dialog_id": "12",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "13",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "14",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "15",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "16",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "17",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "18",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "19",
+    "round5_need_empathy": "来访者表达了情绪或想法，需要共情"
+  },
+  {
+    "dialog_id": "24",
+    "round5_need_empathy": "来访者未表达情绪或想法，不需要共情"
+  }
+]

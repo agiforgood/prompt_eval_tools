@@ -36,6 +36,50 @@ def fetch_bitable_fields_with_token(app_token: str, table_id: str, bearer_token:
             break
     return all_fields
 
+def fetch_bitable_records_with_token(app_token: str, table_id: str, view_id: str, bearer_token: str) -> list:
+    """
+    用指定token从飞书多维表格获取所有记录信息（自动分页）。
+    返回记录信息的列表。
+    """
+    if view_id:
+        url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records"
+        params = {"view_id": view_id}
+    else:
+        url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records"
+        params = {}
+    
+    headers = {
+        "Authorization": f"Bearer {bearer_token}",
+        "Content-Type": "application/json"
+    }
+    all_records = []
+    page_token = None
+    
+    while True:
+        params["page_size"] = 500
+        if page_token:
+            params["page_token"] = page_token
+        
+        resp = requests.get(url, headers=headers, params=params)
+        if resp.status_code != 200:
+            logging.error(f"飞书记录API请求失败: {resp.status_code}, {resp.text}")
+            break
+        
+        data = resp.json().get("data", {})
+        records = data.get("items", [])
+        
+        # 转换记录格式
+        for record in records:
+            fields = record.get("fields", {})
+            all_records.append(fields)
+        
+        if data.get("has_more") and data.get("page_token"):
+            page_token = data["page_token"]
+        else:
+            break
+    
+    return all_records
+
 def save_json_to_file(data, filename: str):
     """
     将数据保存为json文件，支持中文。
@@ -289,6 +333,84 @@ def get_user_all_records_from_env(target_submitter: str) -> list:
     logging.info("不使用view_id获取数据")
     return get_user_all_records(app_token, table_id, "", target_submitter)
 
+def get_all_records_from_env() -> list:
+    """
+    从环境变量读取配置，获取所有人的所有记录
+    
+    Returns:
+        list: 包含所有记录的数组，每个元素是一条完整记录
+    """
+    app_token = os.getenv("FEISHU_READ_APP_TOKEN")
+    table_id = os.getenv("FEISHU_READ_TABLE_ID")
+    view_id = os.getenv("FEISHU_READ_VIEW_ID")
+    
+    if not app_token or not table_id:
+        logging.error("请设置FEISHU_READ_APP_TOKEN和FEISHU_READ_TABLE_ID环境变量")
+        return []
+    
+    # 获取bearer token
+    bearer_token = get_feishu_bearer_token()
+    if not bearer_token:
+        logging.error("无法获取bearer token")
+        return []
+    
+    # 首先尝试使用view_id
+    if view_id:
+        logging.info(f"尝试使用view_id: {view_id}")
+        try:
+            records = fetch_bitable_records_auto_token(app_token, table_id, view_id)
+        except Exception as e:
+            logging.warning(f"使用view_id获取数据失败: {e}，尝试不使用view_id")
+            records = fetch_bitable_records_with_token(app_token, table_id, "", bearer_token)
+    else:
+        logging.info("未指定view_id，读取所有记录")
+        records = fetch_bitable_records_with_token(app_token, table_id, "", bearer_token)
+    
+    if not records:
+        logging.warning("未获取到任何记录")
+        return []
+    
+    # 获取字段信息以生成完整的字段列表
+    all_fields = fetch_bitable_fields_with_token(app_token, table_id, bearer_token)
+    field_names = [field['field_name'] for field in all_fields]
+    
+    # 处理所有记录，补全所有字段
+    complete_records = []
+    for record in records:
+        complete_record = {}
+        for field_name in field_names:
+            value = record.get(field_name)
+            if value is None or value == "" or value == []:
+                complete_record[field_name] = None
+            else:
+                complete_record[field_name] = value
+        complete_records.append(complete_record)
+    
+    # 按编号排序
+    complete_records.sort(key=lambda x: int(x.get("编号", 0)) if str(x.get("编号", "")).isdigit() else 0)
+    
+    logging.info(f"成功获取所有记录，共 {len(complete_records)} 条记录")
+    
+    # 统计提交人信息
+    submitter_count = {}
+    for record in complete_records:
+        submitter_raw = record.get("提交人", "未知")
+        # 处理提交人字段可能是字典的情况
+        if isinstance(submitter_raw, dict):
+            submitter = submitter_raw.get("name", str(submitter_raw))
+        elif submitter_raw is None:
+            submitter = "未知"
+        else:
+            submitter = str(submitter_raw)
+        
+        submitter_count[submitter] = submitter_count.get(submitter, 0) + 1
+    
+    print(f"📊 提交人统计:")
+    for submitter, count in sorted(submitter_count.items()):
+        print(f"  - {submitter}: {count} 条记录")
+    
+    return complete_records
+
 def main():
     """
     主流程：获取token，读取env中的app_token和table_id，分页获取所有字段，保存为json文件。
@@ -301,6 +423,7 @@ def main():
     parser.add_argument("--debug-token", action="store_true", help="调试tenant_access_token获取，打印原始HTTP响应")
     parser.add_argument("--get-user-data", type=str, help="获取特定提交人的数据（合并格式），参数为提交人名称")
     parser.add_argument("--get-user-records", type=str, help="获取特定提交人的所有记录（数组格式），参数为提交人名称")
+    parser.add_argument("--get-all-records", action="store_true", help="获取所有人的所有记录")
     parser.add_argument("--user-output", type=str, help="指定用户数据输出文件名，配合--get-user-data或--get-user-records使用")
     args = parser.parse_args()
 
@@ -329,6 +452,18 @@ def main():
             print(f"共包含 {len(user_records)} 条记录")
         else:
             print(f"未找到提交人 '{args.get_user_records}' 的记录")
+        return
+
+    # 获取所有人的所有记录
+    if args.get_all_records:
+        all_records = get_all_records_from_env()
+        if all_records:
+            output_file = args.user_output or "all_records.json"
+            save_json_to_file(all_records, output_file)
+            print(f"所有记录已保存到 {output_file}")
+            print(f"共包含 {len(all_records)} 条记录")
+        else:
+            print("未找到任何记录")
         return
 
     app_token = os.getenv("FEISHU_READ_APP_TOKEN")
